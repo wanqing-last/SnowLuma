@@ -454,6 +454,7 @@ describe('forward — nested {type:"node"} content', () => {
             const outer: ForwardNodePayload[] = [
                 leaf,
                 mixed,
+                { userUin: 444, nickname: 'cached', elements: [], innerForward: [leaf] },
                 {
                     userUin: 333,
                     nickname: 'nested',
@@ -492,6 +493,7 @@ describe('forward — nested {type:"node"} content', () => {
             expect(finalNodes[0]!.elements).toEqual([expected]);
             expect(finalNodes[1]!.elements[0]).toEqual(type === 'video' ? sibling : expected);
             expect(finalNodes[2]!.innerForward![0]!.elements).toEqual([expected]);
+            expect(finalNodes[3]!.innerForward![0]!.elements).toEqual([expected]);
             expect(upload.mock.calls[0]![0][0]!.elements).toEqual([expected]);
 
             for (const [, groupId, userId] of upload.mock.calls) {
@@ -540,6 +542,31 @@ describe('forward — nested {type:"node"} content', () => {
             expect(upload.mock.calls[0]![0][0]!.elements[0]!.noByteFallback).toBeUndefined();
         },
     );
+
+    it('rejects cached innerForward chains beyond the nesting limit (#437)', async () => {
+        const node: ForwardNodePayload = { userUin: 111, nickname: 'cached', elements: [] };
+        node.innerForward = [node];
+        const upload = vi.fn();
+        const sendPrivate = vi.fn();
+        const ctx = makeCtx(
+            fakeBridge({
+                apis: {
+                    forward: { fetch: vi.fn(async () => [node]), upload },
+                    message: { sendPrivate },
+                },
+            } as any),
+        );
+        ctx.messageStore.findEvent = () => ({
+            message: [{ type: 'forward', data: { id: 'CACHED' } }],
+        });
+
+        await expect(forwardSingleMessage(ctx, 77, { userId: 10001 })).rejects.toMatchObject({
+            code: 'INVALID_FIELD',
+            elementType: 'forward',
+        });
+        expect(upload).not.toHaveBeenCalled();
+        expect(sendPrivate).not.toHaveBeenCalled();
+    });
 
     it('fails a merged-forward single send when the inner tree cannot be fetched (#437)', async () => {
         const fetch = vi.fn(async () => {

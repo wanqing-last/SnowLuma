@@ -1728,6 +1728,25 @@ async function expandForwardNodeForTarget(
     target: { groupId?: number; userId?: number },
     depth: number,
 ): Promise<ForwardNodePayload> {
+    if (depth >= MAX_FORWARD_DEPTH) {
+        throw new MessageElementValidationError(
+            'INVALID_FIELD',
+            `forward nesting depth exceeds ${MAX_FORWARD_DEPTH}`,
+            'forward',
+            'id',
+        );
+    }
+
+    if (node.innerForward?.length) {
+        const innerForward: ForwardNodePayload[] = [];
+
+        for (const inner of node.innerForward) {
+            innerForward.push(await expandForwardNodeForTarget(ref, inner, target, depth + 1));
+        }
+
+        return { ...node, elements: [], innerForward };
+    }
+
     // Fetched nodes already carry protocol media metadata, but their URLs may
     // lack an rkey (or only be a file UUID). Reuse complete fingerprints in the
     // target's upload scene, just as historical single-message forwarding does.

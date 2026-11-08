@@ -556,11 +556,13 @@ export class IdentityService {
 
         const profile = await this.fetcher.fetchProfile(normalized);
 
-        if (profile.uid) {
+        if (profile.uid?.trim()) {
             return profile.uid;
         }
 
-        throw new Error(`failed to resolve UID for UIN ${normalized}`);
+        throw new Error(
+            `failed to resolve UID for UIN ${normalized}: user profile returned an empty UID`,
+        );
     }
 
     /**

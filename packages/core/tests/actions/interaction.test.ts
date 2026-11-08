@@ -30,6 +30,35 @@ describe('apis/interaction', () => {
         expect(bridge.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x7e5_104');
     });
 
+    it('does not send a like when the stranger profile has an empty UID (#577)', async () => {
+        const { IdentityService } = await import('@snowluma/protocol/identity-service');
+        const identity = IdentityService.memory('10001');
+        identity.setFetcher({
+            fetchProfile: async (uin) => ({
+                uin,
+                uid: '',
+                nickname: '',
+                remark: '',
+                qid: '',
+                sex: 'unknown',
+                age: 0,
+                sign: '',
+                avatar: '',
+                level: 0,
+                qidianMasterFlag: 0,
+                qidianCrewFlag: 0,
+                qidianCrewFlag2: 0,
+            }),
+        });
+        const bridge = mockBridge();
+        bridge.resolveUserUid.mockImplementation((uin: number) => identity.resolveUid(uin));
+
+        await expect(new InteractionApi(bridge as any).sendLike(99999, 3)).rejects.toThrow(
+            'failed to resolve UID for UIN 99999: user profile returned an empty UID',
+        );
+        expect(bridge.sendRawPacket).not.toHaveBeenCalled();
+    });
+
     it('setReaction picks _1 for set and _2 for unset', async () => {
         // setReaction now forwards through the SetReaction namespace, which
         // calls bridge.sendRawPacket directly.

@@ -1775,6 +1775,28 @@ async function expandForwardNodeForTarget(
     target: { groupId?: number; userId?: number },
     depth: number,
 ): Promise<ForwardNodePayload> {
+    // A cached node can already carry its inner chain as parsed nodes, so there is
+    // nothing to fetch. Prepare it in place so nested layers get the same
+    // target-scene media treatment as fetched ones.
+    if (node.innerForward && node.innerForward.length > 0) {
+        if (depth + 1 >= MAX_FORWARD_DEPTH) {
+            throw new MessageElementValidationError(
+                'INVALID_FIELD',
+                `forward nesting depth exceeds ${MAX_FORWARD_DEPTH}`,
+                'forward',
+                'id',
+            );
+        }
+
+        const innerForward: ForwardNodePayload[] = [];
+
+        for (const inner of node.innerForward) {
+            innerForward.push(await expandForwardNodeForTarget(ref, inner, target, depth + 1));
+        }
+
+        return { ...node, elements: [], innerForward };
+    }
+
     // Fetched nodes already carry protocol media metadata, but their URLs may
     // lack an rkey (or only be a file UUID). Reuse complete fingerprints in the
     // target's upload scene, just as historical single-message forwarding does.

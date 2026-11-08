@@ -504,6 +504,121 @@ describe('forward — nested {type:"node"} content', () => {
         },
     );
 
+    it('prepares cached inner chains for the target scene (#437)', async () => {
+        const fingerprint = {
+            fileId: 'inner-id',
+            fileSize: 120,
+            md5Hex: 'ab'.repeat(16),
+            sha1Hex: 'cd'.repeat(20),
+            width: 32,
+            height: 24,
+            picFormat: 1001,
+        };
+        const leaf: ForwardNodePayload = {
+            userUin: 111,
+            nickname: 'leaf',
+            elements: [{ type: 'image', ...fingerprint }],
+        };
+        const cached: ForwardNodePayload = {
+            userUin: 444,
+            nickname: 'cached',
+            elements: [],
+            innerForward: [leaf],
+            summary: '查看1条转发消息',
+        };
+        const upload = vi.fn(
+            async (_nodes: ForwardNodePayload[], _g?: number, _u?: number) => 'NEW_RES',
+        );
+        const sendPrivate = vi.fn(async () => ({
+            sequence: 1,
+            clientSequence: 2,
+            random: 3,
+            timestamp: 1700000000,
+        }));
+        const before = structuredClone([cached]);
+        const ctx = makeCtx(
+            fakeBridge({
+                apis: {
+                    forward: { fetch: vi.fn(async () => [cached]), upload },
+                    message: { sendPrivate },
+                },
+            } as any),
+        );
+        ctx.messageStore.findEvent = () => ({
+            message: [{ type: 'forward', data: { id: 'CACHED' } }],
+        });
+
+        await forwardSingleMessage(ctx, 77, { userId: 10001 });
+
+        const nodes = upload.mock.calls[0]![0];
+        expect(nodes[0]!.elements).toEqual([]);
+        expect(nodes[0]!.summary).toBe('查看1条转发消息');
+        expect(nodes[0]!.innerForward![0]!.elements).toEqual([
+            expect.objectContaining({
+                type: 'image',
+                md5Hex: fingerprint.md5Hex,
+                sha1Hex: fingerprint.sha1Hex,
+                noByteFallback: true,
+            }),
+        ]);
+        expect([cached]).toEqual(before);
+    });
+
+    it('rejects cached inner chains beyond the nesting limit (#437)', async () => {
+        const leaf: ForwardNodePayload = {
+            userUin: 111,
+            nickname: 'leaf',
+            elements: [{ type: 'text', text: 'deep' }],
+        };
+        const second: ForwardNodePayload = {
+            userUin: 222,
+            nickname: 'second',
+            elements: [],
+            innerForward: [leaf],
+        };
+        const first: ForwardNodePayload = {
+            userUin: 333,
+            nickname: 'first',
+            elements: [],
+            innerForward: [second],
+        };
+        const upload = vi.fn(async (_nodes: ForwardNodePayload[]) => 'NEW_RES');
+        const sendPrivate = vi.fn(async () => ({
+            sequence: 1,
+            clientSequence: 2,
+            random: 3,
+            timestamp: 1700000000,
+        }));
+        const ctx = makeCtx(
+            fakeBridge({
+                apis: {
+                    forward: {
+                        fetch: vi.fn(async () => [
+                            {
+                                userUin: 444,
+                                nickname: 'outer',
+                                elements: [],
+                                innerForward: [first],
+                            },
+                        ]),
+                        upload,
+                    },
+                    message: { sendPrivate },
+                },
+            } as any),
+        );
+        ctx.messageStore.findEvent = () => ({
+            message: [{ type: 'forward', data: { id: 'CACHED' } }],
+        });
+
+        await expect(forwardSingleMessage(ctx, 77, { userId: 10001 })).rejects.toMatchObject({
+            code: 'INVALID_FIELD',
+            elementType: 'forward',
+        });
+        expect(upload).not.toHaveBeenCalled();
+        expect(sendPrivate).not.toHaveBeenCalled();
+    });
+
     it.each([
         { type: 'image', imageUrl: 'https://example.com/legacy.png', md5Hex: 'ab'.repeat(16) },
         {
